@@ -1,0 +1,59 @@
+---
+title: "MEG_plots"
+author: "Lasse Hansen"
+date: "November 20, 2019"
+output: html_document
+---
+
+
+```{r}
+
+setwd("~/Desktop/Neuro/Tutorials/MEG/Group5")
+p_load(tidyverse)
+
+df <- read.csv('MEG_results_svm.csv')
+```
+
+
+```{r}
+# Reshaping data to work in ggplot
+df_long <- gather(df, 'model', 'value', -time)
+df_long$type <- 'SVM'
+df_long$train_or_test <- rep(c(rep('Test', 1501*2), rep('Train', 1501*2)), 3)
+df_long$metric <- c(rep(c(rep('Accuracy', 1501), rep('Accuracy_sd', 1501)), 2),
+                    rep(c(rep('F1', 1501), rep('F1_sd', 1501)), 2),
+                    rep(c(rep('AUC', 1501), rep('AUC_sd', 1501)), 2))
+
+
+
+raw_metrics = c('Accuracy', 'AUC', 'F1')
+
+SVM_plots <- df_long %>% 
+  filter(metric %in% raw_metrics) %>% 
+  ggplot(aes(time, value, color = train_or_test)) + 
+  geom_line() +
+  geom_hline(aes(yintercept =0.5), linetype = 'dashed') +
+  geom_vline(aes(xintercept = 0), linetype = 'dashed') +
+  ggtitle('Linear SVM performance') +
+  theme(legend.title = element_blank()) +
+  labs(x = 'Time (0 = stimuli onset)', y = 'Score') +
+  facet_grid(~metric)
+
+
+
+NB_plots <- df_long %>% 
+  filter(metric %in% raw_metrics) %>% 
+  ggplot(aes(time, value, color = train_or_test)) + 
+  geom_line() +
+  geom_hline(aes(yintercept =0.5), linetype = 'dashed') +
+  geom_vline(aes(xintercept = 0), linetype = 'dashed') +
+  ggtitle('Naive Bayes performance') +
+  theme(legend.title = element_blank()) +
+  labs(x = 'Time (0 = stimuli onset)', y = 'Score') +
+  facet_grid(~metric)
+
+
+
+
+```
+
