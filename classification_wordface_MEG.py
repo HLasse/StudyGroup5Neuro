@@ -14,6 +14,24 @@ from sklearn.model_selection import cross_val_score, cross_validate
 from sklearn.naive_bayes import GaussianNB
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.neural_network import MLPClassifier
+
+
+def results_to_csv(res, name):
+    results = pd.DataFrame()
+
+    # The metrics we want to extract
+    cols = list(res[0].keys())[-6:]
+
+    # Adding results to dataframe
+    for col in cols:
+        results[col + '_nb'] = [np.mean(time_point[col]) for time_point in res]
+        results[col + '_nb_sd'] = [np.std(time_point[col]) for time_point in res]
+
+    # We are using the image data, so time starts 500 ms before stimuli onset
+    results['time'] = np.arange(-500, 1001, 1)
+
+    results.to_csv('MEG_results_' + name +'.csv', index = False, header = True)
 
 
 # Function to get 3 dimensional array to long format df
@@ -144,6 +162,7 @@ for sample_n in range(n_samples):
 # This is the stuff
 # -----------------
 ###########--------
+
 # Pipeline
 # linear SVM
 svm = make_pipeline(StandardScaler(),  
@@ -152,22 +171,7 @@ svm = make_pipeline(StandardScaler(),
 res_svm = [cross_validate(svm, mat[:,:,i], labels, cv = 3, 
     scoring = ['accuracy', 'f1', 'roc_auc'], return_train_score = True) for i in range(mat.shape[2])]
 
-# Creating results dataframe
-results = pd.DataFrame()
-
-# The metrics we want to extract
-cols = list(res_svm[0].keys())[-6:]
-
-# Adding results to dataframe
-for col in cols:
-    results[col + '_svm'] = [np.mean(time_point[col]) for time_point in res_svm]
-    results[col + '_svm_sd'] = [np.std(time_point[col]) for time_point in res_svm]
-
-# We are using the image data, so time starts 500 ms before stimuli onset
-results['time'] = np.arange(-500, 1001, 1)
-
-results.to_csv('MEG_results_svm.csv', index = False, header = True)
-
+results_to_csv(res_svm, 'svm')
 
 # Naive bayes
 nb = make_pipeline(StandardScaler(),  
@@ -176,15 +180,59 @@ nb = make_pipeline(StandardScaler(),
 res_nb = [cross_validate(nb, mat[:,:,i], labels, cv = 3, 
     scoring = ['accuracy', 'f1', 'roc_auc'], return_train_score = True) for i in range(mat.shape[2])]
 
+results_to_csv(res_nb, 'nb')
+
+# NEURAL NETWOOORK
+nn = make_pipeline(StandardScaler(),  
+    MLPClassifier(hidden_layer_sizes=[64, 32]))
+
+res_nn = [cross_validate(nn, mat[:,:,i], labels, cv = 3, 
+    scoring = ['accuracy', 'f1', 'roc_auc'], return_train_score = True) for i in range(mat.shape[2])]
 
 
+results_to_csv(res_nn, 'nn')
 
 
+# ----------------
+# Sensitivty and specificy: is there a difference in how well the model predicts each class?
 
-# Easy ugly plot
+# Sklearn doesn't like sens/spec, have to hack it..
 
+# Recall = sensitivity for the positive class
+# Currently, fearful is the positive class, so now we're calculating the proportion
+# fearful correctly classified at each time point
+fearful_nb = [cross_validate(nb, mat[:,:,i], labels, cv = 3, 
+    scoring = ['accuracy', 'f1', 'recall'], return_train_score = True) for i in range(mat.shape[2])]
 
+results_to_csv(fearful_nb, 'fearful_recall_nb')
+# Doing so for all models then switching the labels so recall is == specificity
+fearful_svm = [cross_validate(svm, mat[:,:,i], labels, cv = 3, 
+    scoring = ['accuracy', 'f1', 'recall'], return_train_score = True) for i in range(mat.shape[2])]
 
-fig = plt.figure()
-ax = plt.axes()
-plt.plot(time_points[:10], test_acc)
+results_to_csv(fearful_svm, 'fearful_recall_svm')
+
+fearful_nn = [cross_validate(nn, mat[:,:,i], labels, cv = 3, 
+    scoring = ['accuracy', 'f1', 'recall'], return_train_score = True) for i in range(mat.shape[2])]
+
+results_to_csv(fearful_nn, 'fearful_recall_nn')
+
+## Flipping labels
+
+labels = labels * -1
+
+# Running the models again..
+happy_nb = [cross_validate(nb, mat[:,:,i], labels, cv = 3, 
+    scoring = ['accuracy', 'f1', 'recall'], return_train_score = True) for i in range(mat.shape[2])]
+
+results_to_csv(happy_nb, 'happy_recall_nb')
+# Doing so for all models then switching the labels so recall is == specificity
+happy_svm = [cross_validate(svm, mat[:,:,i], labels, cv = 3, 
+    scoring = ['accuracy', 'f1', 'recall'], return_train_score = True) for i in range(mat.shape[2])]
+
+results_to_csv(happy_svm, 'happy_recall_svm')
+
+happy_nn = [cross_validate(nn, mat[:,:,i], labels, cv = 3, 
+    scoring = ['accuracy', 'f1', 'recall'], return_train_score = True) for i in range(mat.shape[2])]
+
+results_to_csv(happy_nn, 'happy_recall_nn')
+
