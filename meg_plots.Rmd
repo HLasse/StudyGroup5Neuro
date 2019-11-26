@@ -9,51 +9,154 @@ output: html_document
 ```{r}
 
 setwd("~/Desktop/Neuro/Tutorials/MEG/Group5")
-p_load(tidyverse)
+p_load(tidyverse, patchwork, knitr, kableExtra)
 
-df <- read.csv('MEG_results_svm.csv')
+df_svm <- read.csv('MEG_results_svm.csv')
+df_nb <- read.csv('MEG_results_nb.csv')
+df_nn <- read.csv('MEG_results_nn.csv')
 ```
 
 
+# Functions 
 ```{r}
 # Reshaping data to work in ggplot
-df_long <- gather(df, 'model', 'value', -time)
-df_long$type <- 'SVM'
-df_long$train_or_test <- rep(c(rep('Test', 1501*2), rep('Train', 1501*2)), 3)
-df_long$metric <- c(rep(c(rep('Accuracy', 1501), rep('Accuracy_sd', 1501)), 2),
-                    rep(c(rep('F1', 1501), rep('F1_sd', 1501)), 2),
-                    rep(c(rep('AUC', 1501), rep('AUC_sd', 1501)), 2))
+df_to_long <- function(df){
+  "
+  Functions to get the dataframes into a format that ggplot understands
+  "
+  df_long <- gather(df, 'model', 'value', -time)
+  df_long$train_or_test <- rep(c(rep('Test', 1501*2), rep('Train', 1501*2)), 3)
+  df_long$metric <- c(rep(c(rep('Accuracy', 1501), rep('Accuracy_sd', 1501)), 2),
+                      rep(c(rep('F1', 1501), rep('F1_sd', 1501)), 2),
+                      rep(c(rep('AUC', 1501), rep('AUC_sd', 1501)), 2))
+  return(df_long)
+}
+
+plot_fun <- function(df, anno, time, title){
+  "
+  Function to plot the time series with annotations for maximum values
+  "
+  plot <- df %>% 
+  filter(metric %in% raw_metrics) %>% 
+  ggplot(aes(time, value, color = train_or_test)) + 
+  geom_line() +
+  geom_hline(aes(yintercept =0.5), linetype = 'dashed') +
+  geom_vline(aes(xintercept = 0), linetype = 'dashed') +
+  ggtitle(title) +
+  theme(legend.title = element_blank()) +
+  labs(x = 'Time (0 = stimuli onset)', y = 'Score') +
+  geom_label(data = anno, aes(label = value), vjust = 2, hjust = -0.3) +
+  geom_label(data = time, aes(label = time), vjust = 0, hjust = 0) +
+  facet_grid(~metric)
+  return(plot)
+}
 
 
+create_anno_df <- function(df){
+  "
+  Creates a dataframe containing the maximum value for each metric as well as the corresponding time point
+  "
+ anno = data.frame(metric = raw_metrics, 
+                  value = rep(0, 3), 
+                  time = rep(0,3), 
+                  train_or_test = 'Test')
 
+  test_set <- df_to_long(df) %>% 
+    filter(train_or_test == 'Test') 
+  
+  i = 1
+  for(metric in raw_metrics){
+    anno$value[i] <- max(test_set[test_set$metric == metric,]$value)
+    anno$time[i] <- test_set[test_set$value == anno$value[i],]$time  
+    anno$value[i] <- round(anno$value[i], 2)
+    i = i+1
+  }
+  return(anno)
+}
+
+create_time_df <- function(anno_df){
+  "
+  Takes the annotated dataframe and sets the value column to be 0.4 for prettier plotting of annotations
+  "
+  anno_df$value <- 0.4
+  return(anno_df)
+}
+```
+
+# Annotation dataframes
+```{r}
+# The features to plot
 raw_metrics = c('Accuracy', 'AUC', 'F1')
 
-SVM_plots <- df_long %>% 
-  filter(metric %in% raw_metrics) %>% 
-  ggplot(aes(time, value, color = train_or_test)) + 
-  geom_line() +
-  geom_hline(aes(yintercept =0.5), linetype = 'dashed') +
-  geom_vline(aes(xintercept = 0), linetype = 'dashed') +
-  ggtitle('Linear SVM performance') +
-  theme(legend.title = element_blank()) +
-  labs(x = 'Time (0 = stimuli onset)', y = 'Score') +
-  facet_grid(~metric)
+svm_anno <- create_anno_df(df_svm)
+nb_anno <- create_anno_df(df_nb)
+nn_anno <- create_anno_df(df_nn)
 
+svm_time <- create_time_df(svm_anno)
+nb_time <- create_time_df(nb_anno)
+nn_time <- create_time_df(nn_anno)
+```
 
+# Creating plots
+```{r}
+# Creating plots
+svm_plot <- df_to_long(df_svm) %>% 
+  plot_fun(svm_anno, svm_time, 'Linear SVM performance')
+svm_plot
 
-NB_plots <- df_long %>% 
-  filter(metric %in% raw_metrics) %>% 
-  ggplot(aes(time, value, color = train_or_test)) + 
-  geom_line() +
-  geom_hline(aes(yintercept =0.5), linetype = 'dashed') +
-  geom_vline(aes(xintercept = 0), linetype = 'dashed') +
-  ggtitle('Naive Bayes performance') +
-  theme(legend.title = element_blank()) +
-  labs(x = 'Time (0 = stimuli onset)', y = 'Score') +
-  facet_grid(~metric)
+nb_plot <- df_to_long(df_nb) %>% 
+  plot_fun(nb_anno, nb_time, 'Naive Bayes performance')
 
+nn_plot <- df_to_long(df_nn) %>% 
+  plot_fun(nn_anno, nb_time, 'Neural Network performance')
 
+svm_plot + nb_plot + nn_plot + plot_layout(ncol = 1)
 
+nn_anno
+```
+
+# Tables
+```{r results = 'asis'}
+#
+table_subset <- function(df, start, end){
+  table <- df %>% 
+    filter(train_or_test == 'Test') %>% 
+    filter(metric %in% raw_metrics) %>% 
+    filter(time > start & time < end) %>% 
+    select(-c(model, train_or_test)) %>% 
+    spread(metric, value) %>% 
+    mutate_all(round, 2)
+  return(table)
+}
+
+svm_tab <- df_to_long(df_svm) %>% 
+  table_subset(100, 120) %>% 
+  rename(Time = time)
+
+nb_tab <- df_to_long(df_nb) %>% 
+  table_subset(100, 120) %>% 
+  select(-time)
+
+nn_tab <- df_to_long(df_nn) %>% 
+  table_subset(100, 120) %>% 
+  select(-time)
+
+svm_kable <- kable(svm_tab) %>%
+  column_spec(c(1,4) ,border_left = F, border_right = T) %>% 
+  kable_styling(full_width = F) %>%
+  add_header_above(c(" " = 1, "SVM" = 3)) 
+
+nb_kable <- kable(nb_tab) %>%
+  column_spec(3, border_left = F, border_right = T) %>% 
+  kable_styling(full_width = F) %>%
+  add_header_above(c("NB" = 3)) 
+
+nn_kable <-kable(nn_tab) %>%
+  kable_styling(full_width = F) %>%
+  add_header_above(c("NN" = 3))
+
+cat(c('<table><tr valign="top"><td>', svm_kable, '</td><td>', nb_kable,'</td><td>', nn_kable, '</td><tr></table>'),
+    sep = '')
 
 ```
 
