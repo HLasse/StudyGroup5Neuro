@@ -5,11 +5,10 @@ date: "November 20, 2019"
 output: html_document
 ---
 
-
+# Plots and tables from the main metrics (accuracy, F1, AUC)
 ```{r}
-
-setwd("~/Desktop/Neuro/Tutorials/MEG/Group5")
-p_load(tidyverse, patchwork, knitr, kableExtra)
+setwd("~/Desktop/Neuro/Tut/Group5")
+pacman::p_load(tidyverse, patchwork, knitr, kableExtra, wesanderson)
 
 df_svm <- read.csv('MEG_results_svm.csv')
 df_nb <- read.csv('MEG_results_nb.csv')
@@ -17,7 +16,7 @@ df_nn <- read.csv('MEG_results_nn.csv')
 ```
 
 
-# Functions 
+## Functions 
 ```{r}
 # Reshaping data to work in ggplot
 df_to_long <- function(df){
@@ -32,131 +31,298 @@ df_to_long <- function(df){
   return(df_long)
 }
 
-plot_fun <- function(df, anno, time, title){
+
+plot_fun <- function(df, anno, title){
   "
-  Function to plot the time series with annotations for maximum values
+  Function to plot the time series with annotations for maximum values and ribbon with sd
   "
+  sd_table <- df %>% 
+    filter(metric %in% sd_metrics) %>% 
+    filter(train_or_test == 'Test')
+
   plot <- df %>% 
   filter(metric %in% raw_metrics) %>% 
-  ggplot(aes(time, value, color = train_or_test)) + 
-  geom_line() +
-  geom_hline(aes(yintercept =0.5), linetype = 'dashed') +
-  geom_vline(aes(xintercept = 0), linetype = 'dashed') +
+  filter(train_or_test == 'Test') %>%   
+  mutate(std = sd_table$value,
+         std_min = value - std,
+         std_max = value + std) %>% 
+  #ggplot(aes(time, value, color = train_or_test)) + 
+  ggplot(aes(time, value)) +
+  geom_line(color = 'lightsteelblue4') +
+  geom_hline(aes(yintercept =0.5), linetype = 'dashed', alpha = 0.8) +
+  geom_vline(aes(xintercept = 0), linetype = 'dashed', alpha = 0.8) +
+  geom_ribbon(aes(ymin = std_min, ymax = std_max), alpha= 0.5, fill = 'lightsteelblue') +
   ggtitle(title) +
-  theme(legend.title = element_blank()) +
   labs(x = 'Time (0 = stimuli onset)', y = 'Score') +
-  geom_label(data = anno, aes(label = value), vjust = 2, hjust = -0.3) +
-  geom_label(data = time, aes(label = time), vjust = 0, hjust = 0) +
+  geom_text(data = anno, mapping = aes(x = -Inf, y = -Inf, label = label), hjust = -0.1, vjust = -1, color ='black') + 
+  theme_bw() +
+  theme(legend.title = element_blank()) +
   facet_grid(~metric)
   return(plot)
 }
 
 
-create_anno_df <- function(df){
+create_anno_df <- function(df, main_metrics = T){
   "
   Creates a dataframe containing the maximum value for each metric as well as the corresponding time point
   "
  anno = data.frame(metric = raw_metrics, 
-                  value = rep(0, 3), 
-                  time = rep(0,3), 
-                  train_or_test = 'Test')
+                  value = rep(0, length(raw_metrics)), 
+                  time = rep(0, length(raw_metrics)), 
+                  train_or_test = 'Test',
+                  label = 'NA')
 
+  anno$label <- as.character(anno$label) 
+ 
+  if(main_metrics == T){
   test_set <- df_to_long(df) %>% 
     filter(train_or_test == 'Test') 
+  }
+  else{
+    test_set <- df %>% 
+      filter(train_or_test == 'Test')
+  }
   
   i = 1
   for(metric in raw_metrics){
     anno$value[i] <- max(test_set[test_set$metric == metric,]$value)
     anno$time[i] <- test_set[test_set$value == anno$value[i],]$time  
     anno$value[i] <- round(anno$value[i], 2)
+    anno$label[i] <- sprintf("Max  %s is %.2f at timepoint %d", anno$metric[i], anno$value[i], anno$time[i])
     i = i+1
   }
+  
   return(anno)
 }
 
-create_time_df <- function(anno_df){
-  "
-  Takes the annotated dataframe and sets the value column to be 0.4 for prettier plotting of annotations
-  "
-  anno_df$value <- 0.4
-  return(anno_df)
-}
-```
-
-# Annotation dataframes
-```{r}
-# The features to plot
-raw_metrics = c('Accuracy', 'AUC', 'F1')
-
-svm_anno <- create_anno_df(df_svm)
-nb_anno <- create_anno_df(df_nb)
-nn_anno <- create_anno_df(df_nn)
-
-svm_time <- create_time_df(svm_anno)
-nb_time <- create_time_df(nb_anno)
-nn_time <- create_time_df(nn_anno)
-```
-
-# Creating plots
-```{r}
-# Creating plots
-svm_plot <- df_to_long(df_svm) %>% 
-  plot_fun(svm_anno, svm_time, 'Linear SVM performance')
-svm_plot
-
-nb_plot <- df_to_long(df_nb) %>% 
-  plot_fun(nb_anno, nb_time, 'Naive Bayes performance')
-
-nn_plot <- df_to_long(df_nn) %>% 
-  plot_fun(nn_anno, nb_time, 'Neural Network performance')
-
-svm_plot + nb_plot + nn_plot + plot_layout(ncol = 1)
-
-nn_anno
-```
-
-# Tables
-```{r results = 'asis'}
-#
 table_subset <- function(df, start, end){
+  "
+  Function to subset a dataframe at a time range and spread the metrics in different columns
+  "
   table <- df %>% 
     filter(train_or_test == 'Test') %>% 
     filter(metric %in% raw_metrics) %>% 
     filter(time > start & time < end) %>% 
     select(-c(model, train_or_test)) %>% 
     spread(metric, value) %>% 
-    mutate_all(round, 2)
+    mutate_all(round, 3)
   return(table)
 }
 
-svm_tab <- df_to_long(df_svm) %>% 
-  table_subset(100, 120) %>% 
-  rename(Time = time)
 
-nb_tab <- df_to_long(df_nb) %>% 
-  table_subset(100, 120) %>% 
-  select(-time)
+make_max_bold <- function(table, main_metrics = T){
+  "
+  Makes the maximum values in the columns bold (for kable printing)
+  "
+  if(main_metrics == T){
+  table <- table %>% 
+      mutate(Accuracy = cell_spec(Accuracy, 'html', bold = ifelse(Accuracy == max(Accuracy), T, F)),
+             AUC = cell_spec(AUC, 'html', bold = ifelse(AUC == max(AUC), T, F)),
+           #  F1 = cell_spec(F1, 'html', bold = ifelse(F1 == max(F1), T, F)),
+             time = cell_spec(time, 'html', bold = T))
+    }
+    else{
+      spec <- table$Specificity
+      
+      table <- table %>% 
+        mutate(Specificity = cell_spec(Specificity, 'html', bold = ifelse(Specificity > Sensitivity, T, F))) %>% 
+        mutate(Sensitivity = cell_spec(Sensitivity, 'html', bold = ifelse(Sensitivity > spec, T, F)),
+               time = cell_spec(time, 'html', bold = T))
+    }
+  return(table)
+}
+```
 
-nn_tab <- df_to_long(df_nn) %>% 
-  table_subset(100, 120) %>% 
-  select(-time)
+## Annotation dataframes
+```{r}
+# The features to plot
+raw_metrics = c('Accuracy', 'AUC')
+sd_metrics <- c('Accuracy_sd', 'AUC_sd')
 
-svm_kable <- kable(svm_tab) %>%
-  column_spec(c(1,4) ,border_left = F, border_right = T) %>% 
-  kable_styling(full_width = F) %>%
-  add_header_above(c(" " = 1, "SVM" = 3)) 
 
-nb_kable <- kable(nb_tab) %>%
-  column_spec(3, border_left = F, border_right = T) %>% 
-  kable_styling(full_width = F) %>%
-  add_header_above(c("NB" = 3)) 
+svm_anno <- create_anno_df(df_svm)
+nb_anno <- create_anno_df(df_nb)
+nn_anno <- create_anno_df(df_nn)
+```
 
-nn_kable <-kable(nn_tab) %>%
-  kable_styling(full_width = F) %>%
-  add_header_above(c("NN" = 3))
+## Creating plots
+```{r}
+# Creating plots
+svm_plot <- df_to_long(df_svm) %>% 
+  plot_fun(svm_anno, 'Linear SVM performance')
+svm_plot
 
+nb_plot <- df_to_long(df_nb) %>% 
+  plot_fun(nb_anno, 'Naive Bayes performance')
+
+nn_plot <- df_to_long(df_nn) %>% 
+  plot_fun(nn_anno, 'Neural Network performance')
+
+svm_plot + nb_plot + nn_plot + plot_layout(ncol = 1)
+```
+
+## Tables
+```{r results = 'asis'}
+
+svm_kable <- df_to_long(df_svm) %>% 
+  table_subset(99, 121) %>% 
+  make_max_bold() %>% 
+  rename(Time = time) %>% 
+  kable(escape = F, align = 'c', digits = 3, condensed = T) %>%
+  column_spec(c(1,3), border_left = F, border_right = T, extra_css = "border-right:2px solid lightgrey;") %>% 
+  kable_styling(bootstrap_options = c('striped', 'condensed'), full_width = F) %>%
+  add_header_above(c(" " = 1, "SVM" = 2)) 
+
+nb_kable <- df_to_long(df_nb) %>% 
+  table_subset(99, 121) %>% 
+  make_max_bold() %>% 
+  select(-time) %>% 
+  kable(escape = F, align = 'c', digits = 3, condensed = T) %>%
+  column_spec(2, border_left = F, border_right = T, extra_css = "border-right:2px solid lightgrey;") %>% 
+  kable_styling(bootstrap_options = c('striped', 'condensed'), full_width = F) %>%
+  add_header_above(c("NB" = 2))
+
+nn_kable <- df_to_long(df_nn) %>% 
+  table_subset(99, 121) %>% 
+  make_max_bold() %>% 
+  select(-time) %>% 
+  kable(escape = F, align = 'c', digits = 3, condensed = T) %>%
+  kable_styling(bootstrap_options = c('striped', 'condensed'), full_width = F) %>%
+  add_header_above(c("NN" = 2))
+
+
+# Print tables together (in html)
 cat(c('<table><tr valign="top"><td>', svm_kable, '</td><td>', nb_kable,'</td><td>', nn_kable, '</td><tr></table>'),
     sep = '')
 
+```
+
+# Plots and tables for sensitivity and specificity analysis
+```{r}
+nb_spec <- read.csv('MEG_results_fearful_recall_nb.csv')
+nb_sens <- read.csv('MEG_results_happy_recall_nb.csv')
+
+svm_spec <- read.csv('MEG_results_fearful_recall_svm.csv')
+svm_sens <- read.csv('MEG_results_happy_recall_svm.csv')
+
+nn_spec <- read.csv('MEG_results_fearful_recall_nn.csv')
+nn_sens <- read.csv('MEG_results_happy_recall_nn.csv')
+```
+
+
+## Slightly reworked functions
+```{r}
+df_to_long <- function(df, spec = T){
+  "
+  Functions to get the dataframes into a format that ggplot understands
+  "
+  df_long <- df %>% 
+    select(test_recall, test_recall_sd, train_recall, train_recall_sd, time) %>% 
+    gather('model', 'value', -time)
+  df_long$train_or_test <- c(rep('Test', 251*2), rep('Train', 251*2))
+  
+  if(spec==T){
+  df_long$metric <- c(rep(c(rep('Specificity', 251), rep('Specificity_sd', 251)), 2))
+  }
+  else{
+    df_long$metric <- c(rep(c(rep('Sensitivity', 251), rep('Sensitivity_sd', 251)), 2))
+  }
+  return(df_long)
+}
+
+
+plot_fun <- function(df, anno, title){
+  "
+  Function to plot the time series with annotations for maximum values and ribbon with sd
+  "
+  sd_table <- df %>% 
+    filter(metric %in% sd_metrics) %>% 
+    filter(train_or_test == 'Test')
+  
+  
+  plot <- df %>% 
+  filter(metric %in% raw_metrics) %>% 
+  filter(train_or_test == 'Test') %>%   
+  mutate(std = sd_table$value,
+         std_min = value - std,
+         std_max = value + std) %>% 
+  #ggplot(aes(time, value, color = train_or_test)) + 
+  ggplot(aes(time, value, color = metric, fill = metric)) +
+  geom_line() +
+  geom_hline(aes(yintercept =0.5), linetype = 'dashed', alpha = 0.8) +
+  geom_vline(aes(xintercept = 0), linetype = 'dashed', alpha = 0.8) +
+#  geom_ribbon(aes(ymin = std_min, ymax = std_max), alpha= 0.2) +
+  ggtitle(title) +
+  labs(x = 'Time (0 = stimuli onset)', y = 'Score') +
+  geom_text(data = anno[2,], mapping = aes(x = -6, y = 0.8, label = label), hjust = -0.1, vjust = -1, color ='black') +
+  geom_text(data = anno[1,], mapping = aes(x = -6, y = 0.75, label = label), hjust = -0.1, vjust = -1, color ='black') +
+  theme_bw() +
+  theme(legend.title = element_blank()) +
+  scale_color_manual(values = wes_palette('BottleRocket1', n = 2)) + 
+  lims(y = c(0.35, 0.92))
+  return(plot)
+}
+
+```
+
+## Merging dataframes and creating annotation tables
+```{r}
+nb_merge <- rbind(df_to_long(nb_spec), df_to_long(nb_sens, spec = F))
+svm_merge <- rbind(df_to_long(svm_spec), df_to_long(svm_sens, spec = F))
+nn_merge <- rbind(df_to_long(nn_spec), df_to_long(svm_sens, spec = F))
+
+raw_metrics <- c('Specificity', 'Sensitivity')
+sd_metrics <- c('Specificity_sd', 'Sensitivity_sd')
+
+nb_anno <- create_anno_df(nb_merge, main_metrics = F)
+svm_anno <- create_anno_df(svm_merge, main_metrics = F)
+nn_anno  <- create_anno_df(nn_merge, main_metrics = F)
+```
+
+## Plotting
+```{r}
+svm_plot <- plot_fun(svm_merge, svm_anno, 'SVM performance')
+nb_plot <- plot_fun(nb_merge, nb_anno, 'Naive Bayes performance')
+nn_plot <- plot_fun(nn_merge, nn_anno, 'Neural network performance')
+
+svm_plot + nb_plot + nn_plot + plot_layout(ncol = 1)
+```
+
+## Tables
+```{r results = 'asis'}
+
+svm_kable <- svm_merge %>% 
+  table_subset(59, 91) %>% 
+  filter(row_number() %% 2 == 1) %>%
+  make_max_bold(main_metrics = F) %>% 
+  rename(Time = time) %>% 
+  kable(escape = F, align = 'c', digits = 3, condensed = T) %>%
+  column_spec(c(1,3), border_left = F, border_right = T, extra_css = "border-right:2px solid lightgrey;") %>% 
+  kable_styling(bootstrap_options = c('striped', 'condensed'), full_width = F) %>%
+  add_header_above(c(" " = 1, "SVM" = 2)) 
+
+nb_kable <- nb_merge %>% 
+  table_subset(59, 91) %>%
+  filter(row_number() %% 2 == 1) %>%
+  make_max_bold(main_metrics = F) %>% 
+  select(-time) %>% 
+  kable(escape = F, align = 'c', digits = 3, condensed = T) %>%
+  column_spec(2, border_left = F, border_right = T, extra_css = "border-right:2px solid lightgrey;") %>% 
+  kable_styling(bootstrap_options = c('striped', 'condensed'), full_width = F) %>%
+  add_header_above(c("NB" = 2))
+
+nn_kable <- nn_merge %>% 
+  table_subset(59, 91) %>% 
+  filter(row_number() %% 2 == 1) %>%
+  make_max_bold(main_metrics = F) %>% 
+  select(-time) %>% 
+  kable(escape = F, align = 'c', digits = 3, condensed = T) %>%
+  kable_styling(bootstrap_options = c('striped', 'condensed'), full_width = F) %>%
+  add_header_above(c("NN" = 2))
+
+
+# Print tables together (in html)
+cat(c('<table><tr valign="top"><td>', svm_kable, '</td><td>', nb_kable,'</td><td>', nn_kable, '</td><tr></table>'),
+    sep = '')
 ```
 
